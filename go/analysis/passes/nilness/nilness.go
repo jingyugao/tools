@@ -69,28 +69,36 @@ func run(pass *analysis.Pass) (interface{}, error) {
 }
 
 func runFunc(pass *analysis.Pass, fn *ssa.Function) {
-	reportf := func(category string, pos token.Pos, format string, args ...interface{}) {
+	reported := map[ssa.Value]bool{}
+
+	reportf := func(category string, pos token.Pos, v ssa.Value, format string, args ...interface{}) {
+		if reported[v] {
+			return
+		}
+
+		reported[v] = true
 		pass.Report(analysis.Diagnostic{
 			Pos:      pos,
 			Category: category,
 			Message:  fmt.Sprintf(format, args...),
 		})
 	}
-
 	// notNil reports an error if v is provably nil.
 	notNil := func(stack []fact, instr ssa.Instruction, v ssa.Value, descr string) {
+
 		if nilnessOf(stack, v) == isnil {
-			reportf("nilderef", instr.Pos(), "nil dereference in "+descr)
+			reportf("nilderef", instr.Pos(), v, "nil dereference in "+descr)
 		}
-		c2 := false
+
 		switch v.Type().(type) {
 		case *types.Pointer:
-			c2 = true
-
-		}
-		if c2 && nilnessOf(stack, v) == unknown {
-			// reportf("nilderef", instr.Pos(), "tp:%T %T ", v.Type(), instr)
-			reportf("nilderef", instr.Pos(), "may nil dereference in "+descr)
+			if nilnessOf(stack, v) == unknown {
+				// skip check receiver
+				if instr.Parent().Signature.Recv() == nil || instr.Parent().Params[0] != v {
+					// reportf("nilderef", instr.Pos(), "tp:%T %T ", v.Type(), instr)
+					reportf("nilderef", instr.Pos(), v, "may nil dereference %p in "+descr, v)
+				}
+			}
 		}
 
 		switch tp := instr.(type) {
@@ -98,7 +106,7 @@ func runFunc(pass *analysis.Pass, fn *ssa.Function) {
 			switch tp.AssertedType.(type) {
 			case *types.Map, *types.Struct:
 				if nilnessOf(stack, v) == unknown {
-					reportf("nilassert", instr.Pos(), "may nil assert in "+descr)
+					reportf("nilassert", instr.Pos(), v, "may nil assert in "+descr)
 				}
 			}
 		}
@@ -153,7 +161,7 @@ func runFunc(pass *analysis.Pass, fn *ssa.Function) {
 			switch instr := instr.(type) {
 			case *ssa.Panic:
 				if nilnessOf(stack, instr.X) == isnil {
-					reportf("nilpanic", instr.Pos(), "panic with nil value")
+					reportf("nilpanic", instr.Pos(), instr.X, "panic with nil value")
 				}
 			}
 		}
@@ -175,7 +183,7 @@ func runFunc(pass *analysis.Pass, fn *ssa.Function) {
 				} else {
 					adj = "impossible"
 				}
-				reportf("cond", binop.Pos(), "%s condition: %s %s %s", adj, xnil, binop.Op, ynil)
+				reportf("cond", binop.Pos(), nil, "%s condition: %s %s %s", adj, xnil, binop.Op, ynil)
 
 				// If tsucc's or fsucc's sole incoming edge is impossible,
 				// it is unreachable.  Prune traversal of it and

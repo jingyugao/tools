@@ -82,6 +82,26 @@ func runFunc(pass *analysis.Pass, fn *ssa.Function) {
 		if nilnessOf(stack, v) == isnil {
 			reportf("nilderef", instr.Pos(), "nil dereference in "+descr)
 		}
+		c2 := false
+		switch v.Type().(type) {
+		case *types.Pointer:
+			c2 = true
+
+		}
+		if c2 && nilnessOf(stack, v) == unknown {
+			// reportf("nilderef", instr.Pos(), "tp:%T %T ", v.Type(), instr)
+			reportf("nilderef", instr.Pos(), "may nil dereference in "+descr)
+		}
+
+		switch tp := instr.(type) {
+		case *ssa.TypeAssert:
+			switch tp.AssertedType.(type) {
+			case *types.Map, *types.Struct:
+				if nilnessOf(stack, v) == unknown {
+					reportf("nilassert", instr.Pos(), "may nil assert in "+descr)
+				}
+			}
+		}
 	}
 
 	// visit visits reachable blocks of the CFG in dominance order,

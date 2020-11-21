@@ -7,3 +7,8 @@ type neverNilType struct {
 func g6(req *neverNilType) int {
 	return req.a
 }
+
+func g7() {
+	var i *int
+	_ = *i
+}

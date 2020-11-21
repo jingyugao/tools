@@ -85,7 +85,6 @@ func init() {
 func alreadyKnowNotNil(v ssa.Value) bool {
 	if tp, ok := v.Type().(*types.Pointer); ok {
 		if n, ok := tp.Elem().(*types.Named); ok {
-			println(n.Obj().Pkg().Name(), n.Obj().Name(), whitelist)
 			if matchWhitelist(n.Obj().Pkg().Name(), n.Obj().Name()) {
 				return true
 			}
@@ -97,7 +96,6 @@ func alreadyKnowNotNil(v ssa.Value) bool {
 func run(pass *analysis.Pass) (interface{}, error) {
 	ssainput := pass.ResultOf[buildssa.Analyzer].(*buildssa.SSA)
 	for _, fn := range ssainput.SrcFuncs {
-
 		runFunc(pass, fn)
 	}
 	return nil, nil
@@ -110,7 +108,13 @@ func runFunc(pass *analysis.Pass, fn *ssa.Function) {
 		if reported[v] {
 			return
 		}
-
+		for _, f := range pass.Files {
+			if pos > f.Pos() && pos < f.End() {
+				if len(f.Comments) > 0 && strings.Contains(f.Comments[0].Text(), "generated") {
+					return
+				}
+			}
+		}
 		reported[v] = true
 		pass.Report(analysis.Diagnostic{
 			Pos:      pos,

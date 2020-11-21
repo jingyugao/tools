@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"go/token"
 	"go/types"
+	"strings"
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/buildssa"
@@ -60,9 +61,43 @@ var Analyzer = &analysis.Analyzer{
 	Requires: []*analysis.Analyzer{buildssa.Analyzer},
 }
 
+var whitelist string
+
+func matchWhitelist(pkgName, tpName string) bool {
+	for _, s := range strings.Split(whitelist, ",") {
+
+		if pkgName+".*" == s {
+			return true
+		}
+		if pkgName+"."+tpName == s {
+			return true
+		}
+		if "*."+tpName == s {
+			return true
+		}
+	}
+	return false
+}
+func init() {
+	Analyzer.Flags.StringVar(&whitelist, "whitelist", whitelist, "skip check whitelist pkg.Name. eg: gorm.DB")
+}
+
+func alreadyKnowNotNil(v ssa.Value) bool {
+	if tp, ok := v.Type().(*types.Pointer); ok {
+		if n, ok := tp.Elem().(*types.Named); ok {
+			println(n.Obj().Pkg().Name(), n.Obj().Name(), whitelist)
+			if matchWhitelist(n.Obj().Pkg().Name(), n.Obj().Name()) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func run(pass *analysis.Pass) (interface{}, error) {
 	ssainput := pass.ResultOf[buildssa.Analyzer].(*buildssa.SSA)
 	for _, fn := range ssainput.SrcFuncs {
+
 		runFunc(pass, fn)
 	}
 	return nil, nil
@@ -83,6 +118,7 @@ func runFunc(pass *analysis.Pass, fn *ssa.Function) {
 			Message:  fmt.Sprintf(format, args...),
 		})
 	}
+
 	// notNil reports an error if v is provably nil.
 	notNil := func(stack []fact, instr ssa.Instruction, v ssa.Value, descr string) {
 
@@ -93,10 +129,10 @@ func runFunc(pass *analysis.Pass, fn *ssa.Function) {
 		switch v.Type().(type) {
 		case *types.Pointer:
 			if nilnessOf(stack, v) == unknown {
+
 				// skip check receiver
 				if instr.Parent().Signature.Recv() == nil || instr.Parent().Params[0] != v {
-					// reportf("nilderef", instr.Pos(), "tp:%T %T ", v.Type(), instr)
-					reportf("nilderef", instr.Pos(), v, "may nil dereference %p in "+descr, v)
+					reportf("nilderef", instr.Pos(), v, "may nil dereference in "+descr)
 				}
 			}
 		}
@@ -248,6 +284,9 @@ func runFunc(pass *analysis.Pass, fn *ssa.Function) {
 	}
 }
 
+type preFact struct {
+}
+
 // A fact records that a block is dominated
 // by the condition v == nil or v != nil.
 type fact struct {
@@ -272,6 +311,11 @@ func (n nilness) String() string { return nilnessStrings[n+1] }
 // nilnessOf reports whether v is definitely nil, definitely not nil,
 // or unknown given the dominating stack of facts.
 func nilnessOf(stack []fact, v ssa.Value) nilness {
+	if alreadyKnowNotNil(v) {
+
+		return isnonnil
+	}
+
 	switch v := v.(type) {
 	// unwrap ChangeInterface values recursively, to detect if underlying
 	// values have any facts recorded or are otherwise known with regard to nilness.

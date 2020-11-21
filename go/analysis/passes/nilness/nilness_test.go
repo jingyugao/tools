@@ -13,5 +13,6 @@ import (
 
 func Test(t *testing.T) {
 	testdata := analysistest.TestData()
+	nilness.Analyzer.Flags.Set("whitelist", "*.neverNilType")
 	analysistest.Run(t, testdata, nilness.Analyzer, "d")
 }
